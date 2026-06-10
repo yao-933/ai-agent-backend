@@ -1,230 +1,152 @@
-# 🤖 AI Agent Backend
+# 🤖 AI Agent Backend Service
 
-**FastAPI + LangChain v1 + LangGraph + DeepSeek** 驱动的智能 Agent 后端服务。
+> 基于 LangGraph + FastAPI 的生产级 AI 智能体服务 | 支持多轮对话记忆、工具调用、容器化部署
 
-内置 **天气查询** 和 **简单计算器** 两个工具，Agent 会根据用户意图自动判断是否调用工具，支持多轮工具调用与推理链。
-
-### ✨ 核心功能
-
-- 🤖 **Agent 自动推理** — 基于 `create_agent`（LangChain v1 最新 API）构建
-- 🧠 **多轮对话记忆** — 同一 `thread_id` 共享会话历史，支持连续追问
-- 💾 **状态持久化** — `InMemorySaver` 自动保存/恢复对话状态（可升级为 SQLite / Postgres）
-- 🔧 **工具调用** — 内置天气查询 + 计算器，轻松扩展新工具
-- 🌐 **OpenAI 兼容** — 默认 DeepSeek，一行配置切 OpenAI / vLLM / OneAPI
+[![Python 3.10+](https://img.shields.io/badge/Python-3.10+-blue.svg)](https://www.python.org/)
+[![FastAPI](https://img.shields.io/badge/FastAPI-0.115+-green.svg)](https://fastapi.tiangolo.com/)
+[![LangChain](https://img.shields.io/badge/LangChain-1.3+-red.svg)](https://www.langchain.com/)
+[![LangGraph](https://img.shields.io/badge/LangGraph-1.2+-purple.svg)](https://langchain-ai.github.io/langgraph/)
+[![Docker](https://img.shields.io/badge/Docker-✅-blue.svg)](https://www.docker.com/)
 
 ---
 
-## 📁 项目结构
+## ✨ 核心能力
 
-```
-ai-agent-backend/
-├── app/
-│   ├── __init__.py      # 包标记
-│   ├── config.py        # 环境变量 / 配置中心
-│   ├── models.py        # Pydantic 请求 / 响应模型
-│   ├── tools.py         # 工具定义（天气 + 计算器）
-│   ├── agent.py         # create_agent + InMemorySaver 核心
-│   └── main.py          # FastAPI 应用入口（/chat, /health）
-├── batch_process.py     # CSV 批量处理脚本
-├── requirements.txt     # Python 依赖
-├── Dockerfile           # 容器镜像
-├── docker-compose.yaml  # Docker Compose 编排
-├── .env.example         # 环境变量模板
-├── .gitignore
-├── input.csv            # 示例输入
-└── README.md            # 本文件
-```
+| 能力 | 说明 |
+|------|------|
+| 🧠 **智能 Agent** | 基于 LangGraph `create_agent`，自动理解意图、调用工具 |
+| 💬 **多轮记忆** | `InMemorySaver` 实现会话级状态持久化，支持 thread_id 隔离 |
+| 🔧 **工具扩展** | 内置天气查询、计算器，可轻松添加任意工具 |
+| 🌐 **REST API** | FastAPI 服务，提供 `/chat`、`/health`、`/docs` 端点 |
+| 📦 **容器化** | Docker + docker-compose 一键部署 |
+| 📊 **批量处理** | CSV 输入 → Agent 处理 → CSV 输出，模拟 AI 工程化链路 |
 
 ---
 
 ## 🚀 快速开始
 
-### 1. 克隆 & 安装
+### 1. 克隆与配置
 
 ```bash
+git clone https://github.com/yao-933/ai-agent-backend.git
 cd ai-agent-backend
 
-# 创建虚拟环境（推荐）
+# 复制环境变量模板
+cp .env.example .env
+
+# 编辑 .env，填入你的 API Key
+# DEEPSEEK_API_KEY=sk-xxx
+# OPENAI_API_KEY=sk-xxx
+```
+
+### 2. 安装依赖
+
+```bash
+# 创建虚拟环境
 python -m venv .venv
-source .venv/bin/activate   # Linux / Mac
-# .venv\Scripts\activate    # Windows
+source .venv/bin/activate  # Windows: .venv\Scripts\activate
 
 # 安装依赖
 pip install -r requirements.txt
 ```
 
-### 2. 配置环境变量
-
-```bash
-cp .env.example .env
-```
-
-编辑 `.env`，填入你的 API Key：
-
-```env
-OPENAI_API_KEY=sk-your-real-api-key
-OPENAI_BASE_URL=https://api.deepseek.com   # DeepSeek 官方
-MODEL_NAME=deepseek-chat
-```
-
-> **💡 使用 OpenAI 官方？**
-> 把 `OPENAI_BASE_URL` 改成 `https://api.openai.com/v1`，`MODEL_NAME` 改成 `gpt-4o` 即可。任何兼容 OpenAI 接口的服务（OneAPI、vLLM、LocalAI 等）都可以直接使用。
-
 ### 3. 启动服务
 
 ```bash
-uvicorn app.main:app --host 0.0.0.0 --port 8000 --reload
+uvicorn main:app --reload --host 0.0.0.0 --port 8000
 ```
 
-访问 [http://localhost:8000/docs](http://localhost:8000/docs) 查看 Swagger 文档。
-
-### 4. 测试 API
+### 4. 测试调用
 
 ```bash
-# 天气
+# 单轮对话
 curl -X POST http://localhost:8000/chat \
   -H "Content-Type: application/json" \
   -d '{"prompt": "北京今天天气怎么样？"}'
 
-# 计算器
+# 多轮对话（同一个 thread_id 会记住上下文）
 curl -X POST http://localhost:8000/chat \
   -H "Content-Type: application/json" \
-  -d '{"prompt": "计算 (135 + 267) × 14 ÷ 6"}'
-
-# 复合任务（Agent 自动调用多个工具）
-curl -X POST http://localhost:8000/chat \
-  -H "Content-Type: application/json" \
-  -d '{"prompt": "北京和上海哪个更热？温差是多少？"}'
-
-# 多轮对话记忆（同一个 thread_id 保持上下文）
-curl -X POST http://localhost:8000/chat \
-  -H "Content-Type: application/json" \
-  -d '{"prompt": "帮我算 100 除以 4", "thread_id": "my-session"}'
+  -d '{"prompt": "100 divided by 4?", "thread_id": "test-001"}'
 
 curl -X POST http://localhost:8000/chat \
   -H "Content-Type: application/json" \
-  -d '{"prompt": "把刚才的结果乘以 6", "thread_id": "my-session"}'
+  -d '{"prompt": "multiply that by 6", "thread_id": "test-001"}'
+# 返回 150 ✅
 ```
 
----
-
-## 📊 批量处理
+### 5. Docker 部署
 
 ```bash
-# 直接模式（推荐，更快）
-python batch_process.py --input input.csv --output output.csv
-
-# HTTP 模式（先启动服务，再运行）
-python batch_process.py --mode http --url http://localhost:8000
-```
-
-`input.csv` 格式要求至少包含一列 `prompt`：
-
-```csv
-prompt
-北京今天天气怎么样？
-计算 2 的 20 次方
-```
-
-输出 `output.csv` 包含两列：`prompt` 和 `answer`。
-
----
-
-## 🐳 Docker 部署
-
-```bash
-# 构建并启动
-docker compose up -d
-
-# 查看日志
-docker compose logs -f
-
-# 停止
-docker compose down
+docker build -t ai-agent-backend .
+docker run -p 8000:8000 --env-file .env ai-agent-backend
 ```
 
 ---
 
-## 🔧 环境变量说明
+## 📁 项目结构
 
-| 变量名 | 必填 | 默认值 | 说明 |
-|---|---|---|---|
-| `OPENAI_API_KEY` | ✅ | — | API 密钥（DeepSeek / OpenAI） |
-| `OPENAI_BASE_URL` | ❌ | `https://api.deepseek.com` | API 地址，可替换为任意 OpenAI 兼容服务 |
-| `MODEL_NAME` | ❌ | `deepseek-chat` | 模型名称（如 `gpt-4o`、`gpt-4o-mini`） |
-| `HOST` | ❌ | `0.0.0.0` | 服务监听地址 |
-| `PORT` | ❌ | `8000` | 服务监听端口 |
-
----
-
-## 🛠️ 已有工具
-
-| 工具 | 说明 |
-|---|---|
-| `get_weather` | 查询城市天气（当前为模拟数据，可替换为真实 API） |
-| `calculator` | 安全数学表达式求值（仅允许数字与运算符，防注入） |
-
-### 添加新工具
-
-在 [app/tools.py](app/tools.py) 中使用 `@tool` 装饰器添加即可，Agent 会自动发现：
-
-```python
-@tool
-def my_new_tool(param: str) -> str:
-    """工具描述 — Agent 靠这段描述判断何时调用。"""
-    return f"结果：{param}"
-
-ALL_TOOLS.append(my_new_tool)
+```text
+ai-agent-backend/
+├── main.py              # FastAPI 入口
+├── agent.py             # LangGraph Agent
+├── tools.py             # 工具函数（天气、计算器）
+├── models.py            # 请求/响应模型
+├── batch_process.py     # CSV 批量处理
+├── requirements.txt     # 依赖列表
+├── Dockerfile           # Docker 镜像
+├── docker-compose.yaml  # 容器编排
+├── .env.example         # 环境变量模板
+└── README.md            # 项目文档
 ```
 
 ---
 
-## 📡 API 接口
+## 🛠️ 技术栈
 
-### `GET /health`
+| 类别 | 技术 | 作用 |
+|------|------|------|
+| 后端框架 | FastAPI | REST API 服务 |
+| AI 框架 | LangChain | 模型调用、工具定义 |
+| Agent 图 | LangGraph | 状态管理、记忆持久化 |
+| 大模型 | DeepSeek / Claude | 推理与对话 |
+| 部署 | Docker | 容器化 |
+| 文档 | Swagger UI | 交互式 API 文档 |
 
-健康检查。
+---
 
-```json
-{"status": "ok", "service": "ai-agent-backend", "version": "1.0.0"}
-```
+## 📊 API 文档
 
-### `POST /chat`
+启动服务后访问：http://localhost:8000/docs
 
-发送 prompt 给 Agent，支持多轮对话记忆。
-
-**请求体：**
-```json
-{
-  "prompt": "北京天气怎么样？",
-  "thread_id": "my-session"
-}
-```
+### POST /chat
 
 | 参数 | 类型 | 必填 | 说明 |
-|---|---|---|---|
-| `prompt` | string | ✅ | 用户提示词 |
-| `thread_id` | string | ❌ | 会话 ID（默认 `"default"`），相同 ID 共享对话历史 |
+|------|------|------|------|
+| prompt | string | ✅ | 用户输入的问题 |
+| thread_id | string | ❌ | 会话 ID，传了则保持多轮记忆 |
+| temperature | float | ❌ | 模型温度，默认 0.7 |
 
-**响应体：**
-```json
-{"answer": "🌍 北京 当前天气：晴\n🌡️ 温度：28°C\n💧 湿度：45%"}
-```
+### GET /health
 
-> 💡 **多轮对话**：传入相同的 `thread_id`，Agent 会记住之前的对话内容，实现连续追问。
+健康检查，返回 `{"status": "ok"}`
 
 ---
 
-## 🧱 技术栈
+## 📝 技术亮点
 
-- **[FastAPI](https://fastapi.tiangolo.com/)** — 高性能异步 Web 框架
-- **[LangChain v1](https://docs.langchain.com/oss/python/langchain/overview)** — LLM 应用框架，使用 `create_agent` 最新 API
-- **[LangGraph](https://www.langchain.com/langgraph)** — Agent 状态图引擎，提供 `InMemorySaver` 实现对话状态持久化
-- **[DeepSeek](https://platform.deepseek.com/)** — 默认 LLM（OpenAI 兼容接口，可替换为 OpenAI / vLLM / OneAPI）
-- **[Pydantic](https://docs.pydantic.dev/)** — 数据验证与序列化
+✅ **生产级 Agent**：使用 LangGraph `create_agent` 替代手写循环
+
+✅ **状态持久化**：`InMemorySaver` 实现会话级记忆
+
+✅ **工程化部署**：Docker + 环境变量管理
+
+✅ **可扩展架构**：在 `tools.py` 添加 `@tool` 即可扩展
+
+✅ **批量处理链路**：支持 CSV 离线特征生产
 
 ---
 
 ## 📄 License
 
-MIT — 可自由使用、修改和分发。
+MIT
